@@ -450,18 +450,29 @@ def header_plausible(blob: Blob, hdr: Dict[str, int], addr: Addressing) -> Tuple
             return False, f"{name} table at 0x{off:X}+0x{count * stride:X} outside blob (0x{n:X})"
 
     # Spot-check expression records: expression types must be from the known set.
+    # Real caches keep the whole 64512-node datum array in the tag, so a fifth of
+    # it is unallocated and filled with the engine's 0xBA free-datum pattern.
+    # Those records are not expressions and must not count against the sample.
     if hdr["expr_count"]:
         base = addr.to_offset(hdr["expr_addr"])
         good = 0
         sampled = 0
+        free = 0
         step = max(1, hdr["expr_count"] // 64)
         for i in range(0, hdr["expr_count"], step):
-            et = blob.i16(base + i * STRIDE_EXPR + 0x6) & 0xFF
+            o = base + i * STRIDE_EXPR
+            if blob.d[o + 2:o + STRIDE_EXPR] == b"\xba" * (STRIDE_EXPR - 2):
+                free += 1
+                continue
+            et = blob.i16(o + 0x6) & 0xFF
             sampled += 1
             if et in EXPR_TYPE_NAMES:
                 good += 1
         if sampled and good / sampled < 0.9:
-            return False, f"only {good}/{sampled} sampled expression types are known"
+            return False, (f"only {good}/{sampled} sampled expression types are known "
+                           f"({free} free datums skipped)")
+        if not sampled:
+            return False, "every sampled expression datum is the 0xBA free pattern"
 
     return True, "ok"
 

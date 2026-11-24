@@ -23,11 +23,15 @@ Integrity model, from Assembly (``Blam/ICacheFile.cs`` ``GenerateChecksum``,
   bytes each) and the three resource-page hashes in the resource layouts.
   Neither covers tag data. Editing a tag does not invalidate them.
 
-**Nothing in this module has ever been run against a real `.map` file.** Every
-claim of correctness below is validated against the synthetic caches built by
-``test_parse_map.py`` / ``test_reach_write.py``. That proves the arithmetic is
-self-consistent and that encode is the exact inverse of decode. It does not
-prove MCC will load the result.
+STATUS (2026-11-23). The round-trip gate, same-size patching and tag-area
+growth have all been run against real Halo: Reach MCC caches (ff50_park,
+ff70_holdout) and cross-checked by loading the output through Blamite, the
+reference implementation. See ``verify_with_blamite()`` below.
+
+**Our own reader accepting an output is NOT evidence that the output is well
+formed.** Four earlier grown caches reparsed with zero warnings and a valid
+checksum and were still rejected by Blamite. Run ``verify_with_blamite()`` (or
+``--blamite-gate``) on every file this module writes before trusting it.
 """
 
 from __future__ import annotations
@@ -223,8 +227,18 @@ class CacheWriter:
         return offset - self.meta_offset + self.virtual_base
 
     def area_offset(self, section: int) -> int:
-        """File offset of an interop section (rule 1: vaddr + mask)."""
-        return self.sections[section][0] + self.masks[section]
+        """File offset of an interop section (rule 1: vaddr + mask).
+
+        The sum MUST be truncated to 32 bits, exactly as the reader does
+        (``reach_cache`` ``_read_header``). On a real MCC cache the mask is a
+        wrapping 32-bit delta and is usually "negative": ff50_park's debug
+        section is vaddr 0x0B409000 + mask 0xF4C01000 = 0x1_0000A000, i.e.
+        file offset 0xA000. Without the truncation every section looks as if
+        it lived past 0x1_00000000, so ``grow_tag_area`` believed the debug
+        section (string-id and tag-name tables) sat after the tag area and
+        shifted it, which silently destroyed all 14034 tag names.
+        """
+        return (self.sections[section][0] + self.masks[section]) & 0xFFFFFFFF
 
     # -- checksum -----------------------------------------------------------
 
@@ -297,9 +311,12 @@ class CacheWriter:
 
         ``mode="end"``   new space goes after the last byte of the tag area.
                          Every existing virtual address stays valid; anything
-                         stored after the tag area in the file (on a real Reach
-                         map that is the debug section: string-id and tag-name
-                         tables) shifts forward.
+                         stored after the tag area in the file shifts forward.
+                         On ff50_park and ff70_holdout that is the localization
+                         section, NOT the debug section: both maps place the
+                         debug section (string-id and tag-name tables) before
+                         the tag area. Never assume which section follows -
+                         the code reads it from the section table.
         ``mode="beginning"`` mirrors Assembly exactly: space is inserted at the
                          start of the tag area and the virtual base is
                          decremented by the same amount, so existing addresses
@@ -323,7 +340,9 @@ class CacheWriter:
         old_table_offsets = {}
         for name in DEBUG_POINTER_FIELDS:
             if name in self.v.fields and self.header.get(name) is not None:
-                old_table_offsets[name] = self.header[name] + self.masks[SECTION_DEBUG]
+                # same wrapping-mask rule as area_offset(): truncate to 32 bits
+                old_table_offsets[name] = (self.header[name]
+                                           + self.masks[SECTION_DEBUG]) & 0xFFFFFFFF
 
         # 1. insert the bytes
         self.buf[insert_at:insert_at] = b"\x00" * delta
@@ -352,23 +371,64 @@ class CacheWriter:
         # the tag area's own start never moves in either mode
         new_area_offsets[SECTION_TAG] = self.meta_offset
 
-        # 4. sections and masks. The mask is kept as it was, so the rule-1
-        #    identity (file offset = vaddr + mask) is preserved exactly; on a
-        #    shipped map every mask is 0, which makes this identical to
-        #    Assembly's RebuildInteropData result (vaddr == file offset).
+        # 4. sections and masks.
+        #
+        #    A section's file offset is vaddr + mask (mod 2^32), so when a
+        #    section's data moves in the file that identity can be restored
+        #    either by moving the vaddr or by moving the mask. ONLY THE MASK IS
+        #    CORRECT. Everything that points *into* a section is stored as a
+        #    pointer in that section's virtual address space, and Blamite
+        #    resolves such a pointer with
+        #
+        #        file offset = pointer - section.vaddr + (section.vaddr + mask)
+        #                    = pointer + mask
+        #
+        #    (``BasedPointerConverter.PointerToOffset``): the vaddr cancels.
+        #    Bumping the vaddr therefore moves the section header's idea of
+        #    where the section starts while leaving every pointer inside it
+        #    resolving to the OLD file offset.
+        #
+        #    That is exactly how `Segment size is too large` was produced. The
+        #    localization pointers live in the `matg` tag (per language:
+        #    "locale index table offset", "locale data index offset"), and
+        #    nothing rewrites them. After a 0x10000 "end" growth of Holdout the
+        #    tag data segment declared 0x6F00000 bytes from file 0x1FFE000
+        #    while language 0's locale index table was still resolved to file
+        #    0x8EEE000 -- 0x6EF0000 away -- so Blamite's FileSegmenter found the
+        #    tag segment overrunning its neighbour by exactly the growth delta
+        #    and threw in ThirdGenLanguage.Load.
+        #
+        #    Keeping every vaddr fixed and letting the mask absorb the file
+        #    movement keeps all three pointer spaces (tag, debug, locale) valid
+        #    without rewriting a single pointer. On a zero-mask cache (the
+        #    synthetic fixtures) a moved section simply acquires a non-zero
+        #    mask, which is still the rule-1 identity.
         sizes = {SECTION_TAG: self.meta_size}
         for i in range(4):
             vaddr, size = self.sections[i]
             if vaddr == 0 and size == 0:
                 continue
             new_size = sizes.get(i, size)
-            self.put_section(i, new_area_offsets[i] - self.masks[i], new_size)
+            if new_size != size:
+                self.put_section(i, vaddr, new_size)
+            moved = new_area_offsets[i] - old_area_offsets[i]
+            if moved:
+                self.put_mask(i, (self.masks[i] + moved) & 0xFFFFFFFF)
+                self.log.append("section %d moved 0x%X in the file: mask 0x%08X -> 0x%08X, "
+                                "vaddr 0x%08X kept so its pointers stay valid"
+                                % (i, moved, (self.masks[i] - moved) & 0xFFFFFFFF,
+                                   self.masks[i], vaddr))
 
         # 5. header fields
         if "virtual_size" in self.v.fields:
             self.put_header("virtual_size", self.meta_size)
         if "tag_buffer_offset" in self.v.fields:
-            self.put_header("tag_buffer_offset", self.sections[SECTION_TAG][0] + self.masks[SECTION_TAG])
+            # The header's "tag buffer offset" holds the tag section's VIRTUAL
+            # address, not its file offset: on ff50_park it reads 0x03CE9000,
+            # which is sections[tag].vaddr, while vaddr+mask is file 0x2925000.
+            # They coincide only on caches whose masks are zero, which is why
+            # the synthetic fixtures never caught this.
+            self.put_header("tag_buffer_offset", self.sections[SECTION_TAG][0])
         if "virtual_base_address" in self.v.fields:
             self.put_header("virtual_base_address", self.virtual_base)
         if "file_size" in self.v.fields:
@@ -378,9 +438,14 @@ class CacheWriter:
         # header moved forward in the file by exactly the amount the virtual
         # base moved down, so its stored address still resolves. Same reasoning
         # applies to every tag address and every in-tag pointer.
+        # The five debug-section tables are header fields holding POINTERS, so
+        # their value is (file offset - mask). Step 4 already moved the debug
+        # mask by however far the debug section moved, which makes this loop a
+        # no-op in that case - it is kept because it is also the correct answer
+        # when only one of the two moves, and because it asserts the identity.
         for name, old_off in old_table_offsets.items():
             new_off = old_off + delta if old_off >= insert_at else old_off
-            self.put_header(name, new_off - self.masks[SECTION_DEBUG])
+            self.put_header(name, (new_off - self.masks[SECTION_DEBUG]) & 0xFFFFFFFF)
 
         # 6. partitions (Assembly: ThirdGenHeader.AdjustPartitions)
         self._adjust_partitions()
@@ -484,15 +549,151 @@ class CacheWriter:
     def bytes(self) -> bytes:
         return bytes(self.buf)
 
-    def save(self, path) -> int:
+    def save(self, path, gate: bool = True) -> int:
+        """Write the cache out, but only if Blamite will load it.
+
+        The bytes go to a sibling temporary file first; the file at ``path``
+        appears only after Blamite, the reference implementation, has loaded
+        the result without throwing. A cache our own reader accepts and the
+        game's own library rejects is worse than no cache, so a rejection
+        raises and leaves nothing behind.
+
+        ``gate=False`` skips the check. Use it only for synthetic fixtures,
+        which are not real caches and which Blamite cannot load by design.
+        """
         data = self.bytes()
-        Path(path).write_bytes(data)
+        path = Path(path)
+        if not gate:
+            path.write_bytes(data)
+            return len(data)
+
+        tmp = path.with_name(path.name + ".blamite-gate.tmp")
+        tmp.write_bytes(data)
+        try:
+            require_blamite_load(tmp, display_name=str(path))
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+        tmp.replace(path)
+        self.log.append("Blamite gate passed; wrote %d bytes to %s" % (len(data), path))
         return len(data)
 
     def reparse(self) -> ReachCacheFile:
         """Parse what we have written, with the reader, from scratch."""
         return ReachCacheFile(self.bytes(), path=self.cache.path,
                               force_variant=self.v.name if self.cache.detection.startswith("forced") else None)
+
+
+# ---------------------------------------------------------------------------
+# The Blamite gate
+#
+# Our reader agreeing with our writer proves only that the two are consistent.
+# Four grown caches passed that test with zero warnings and a valid checksum and
+# were still rejected by Blamite with "Segment size is too large" (see
+# research/19-holdout-retarget.md). The reference implementation is the only
+# authority this module trusts, so every file it writes is loaded through it.
+#
+# The gate shells out to tools/compile's `hsc-compile --load-only <map>`, which
+# calls Blamite's CacheFileLoader.LoadCacheFile and exits non-zero on any
+# exception.
+# ---------------------------------------------------------------------------
+
+#: Path to hsc-compile.dll. Overrides the search below.
+DRIVER_ENV = "FFEE_HSC_COMPILE"
+#: Path to Blamite's Formats directory. Overrides the search below.
+FORMATS_ENV = "BLAMITE_FORMATS"
+#: Set to "off"/"0"/"no" to allow writing an unverified cache. Last resort.
+GATE_ENV = "FFEE_BLAMITE_GATE"
+
+
+class BlamiteRejected(WriteError):
+    """Blamite refused to load a cache this module produced."""
+
+
+def gate_disabled() -> bool:
+    import os
+    return os.environ.get(GATE_ENV, "").strip().lower() in ("off", "0", "no", "false")
+
+
+def find_blamite_driver():
+    """Locate hsc-compile.dll and Blamite's Formats dir, or return (None, None)."""
+    import os
+    env_driver = os.environ.get(DRIVER_ENV)
+    candidates = []
+    if env_driver:
+        candidates.append(Path(env_driver))
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        candidates.append(parent / "tools" / "compile" / "bin" / "Release" / "net8.0" / "hsc-compile.dll")
+    driver = next((c for c in candidates if c.is_file()), None)
+    if driver is None:
+        return None, None
+
+    env_formats = os.environ.get(FORMATS_ENV)
+    formats = None
+    for c in ([Path(env_formats)] if env_formats else []) + [driver.parent / "Formats"]:
+        if (c / "Engines.xml").is_file():
+            formats = c
+            break
+    return driver, formats
+
+
+def blamite_load(path, timeout: int = 900):
+    """Load ``path`` through Blamite. Returns (ok, detail).
+
+    ``ok`` is None when the check could not be run at all (no driver, no
+    dotnet): that is not a pass, and callers must not treat it as one.
+    """
+    import os
+    import subprocess
+
+    driver, formats = find_blamite_driver()
+    if driver is None:
+        return None, ("hsc-compile.dll not found. Build it with tools/compile/build.sh "
+                      "--build-only, or set %s to its path." % DRIVER_ENV)
+    if formats is None:
+        return None, ("Blamite's Formats directory not found next to %s; set %s."
+                      % (driver, FORMATS_ENV))
+
+    env = dict(os.environ)
+    env.setdefault("DOTNET_ROLL_FORWARD", "LatestMajor")
+    env.setdefault("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
+    env.setdefault("DOTNET_NOLOGO", "1")
+    cmd = ["dotnet", str(driver), "--formats", str(formats), "--load-only", "--map", str(path)]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
+    except FileNotFoundError:
+        return None, "dotnet is not on PATH; cannot run the Blamite gate."
+    except subprocess.TimeoutExpired:
+        return False, "Blamite did not finish within %ds" % timeout
+
+    out = (p.stdout or "") + (p.stderr or "")
+    if p.returncode == 0 and "LOAD: OK" in out:
+        return True, out.strip()
+    interesting = [ln for ln in out.splitlines()
+                   if ln.startswith("FATAL") or "Exception" in ln or "ERROR" in ln]
+    return False, "\n".join(interesting) or out.strip()
+
+
+def require_blamite_load(path, display_name=None):
+    """Raise unless Blamite loads ``path``."""
+    name = display_name or str(path)
+    ok, detail = blamite_load(path)
+    if ok:
+        return detail
+    if ok is None:
+        if gate_disabled():
+            return ("GATE SKIPPED (%s is off): %s - this cache is UNVERIFIED."
+                    % (GATE_ENV, detail))
+        raise BlamiteRejected(
+            "refusing to write %s: the Blamite gate could not be run, so the cache is "
+            "unverified. %s  Set %s=off to write it anyway, and do not ship the result."
+            % (name, detail, GATE_ENV))
+    if gate_disabled():
+        return "GATE FAILED but %s is off: %s" % (GATE_ENV, detail)
+    raise BlamiteRejected(
+        "Blamite REJECTED %s, so it was not written. Our reader accepting a cache is not "
+        "evidence that it is well formed.\n%s" % (name, detail))
 
 
 def checksum_of(data, header_size: int, endian: str = "<") -> int:
@@ -527,6 +728,10 @@ def main(argv=None):
                          "if they match, the checksum algorithm is confirmed.")
     ap.add_argument("--round-trip", action="store_true",
                     help="re-encode every parsed field and report whether the file is unchanged")
+    ap.add_argument("--blamite-gate", action="store_true",
+                    help="load the map through Blamite (the reference implementation) and report "
+                         "whether it accepts it. This is the ONLY pass condition for a modified "
+                         "cache; our own reader's approval is not evidence.")
     ap.add_argument("--self-test", action="store_true", help="run the writer self-test")
     args = ap.parse_args(argv)
 
@@ -536,6 +741,18 @@ def main(argv=None):
 
     if not args.map:
         ap.error("a map path is required unless --self-test is given")
+
+    if args.blamite_gate:
+        ok, detail = blamite_load(args.map)
+        print("blamite gate      %s" % {True: "PASS - Blamite loads this cache",
+                                        False: "FAIL - Blamite rejects this cache",
+                                        None: "COULD NOT RUN (not a pass)"}[ok])
+        if detail:
+            print(detail)
+        if ok is not True:
+            return 3
+        if not args.verify_checksum and not args.round_trip:
+            return 0
 
     cache = ReachCacheFile.from_path(args.map, force_variant=args.variant)
     w = CacheWriter(cache)

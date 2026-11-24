@@ -1,0 +1,93 @@
+# tools/compile/fe-objects.txt
+#
+# Every script object src/hsc/ references, in the form tools/compile's --objects flag reads.
+#
+# REWRITTEN 2026-11-23.  WAS 54 ENTRIES, 1 SATISFIED BY HOLDOUT, 53 MISSING.
+# IS NOW 20 ENTRIES, 20 SATISFIED BY HOLDOUT, 0 MISSING.
+#
+# --objects IS NO LONGER NEEDED FOR THIS PACK.  Every name below already exists in ff70_holdout's
+# scnr, so the compiler resolves all of them straight out of the cache. The file is kept as the
+# audit trail: it is the complete list of what the scripts touch, with the block and index each one
+# was read from, so the claim "zero new script objects" can be re-checked in one pass.
+#
+# Verified with build/logs/placecheck.py (placement census), build/logs/holdout_fe_offsets.py
+# (squads, groups, cells) and a per-name compile probe against ~/Desktop/ff70_holdout.map
+# sha256 c0b8a30f0a1cdc6fa9242ec144c6ccc3e8d580d0a8a39732bcf76b1c6a95d8a2.
+#
+# THE NEGATIVE CONTROL THAT MAKES THIS MEANINGFUL: the compiler was fed "health_pack9" and
+# "gr_unsc_reinforcements" against the same cache and rejected both with
+# 'Failed to process the expression "X". A "object"/"ai" expression was expected.'
+# So a name surviving the compile is evidence it is really in the scenario, not that the check
+# was skipped.
+
+# ---- squad groups -----------------------------------------------------------------------------
+# squad groups[9]. STOCK, but REPARENTED to root by tools/patch (parent 1 -> -1) so that
+# survival_wave_living_count can stay completely stock and still reach zero.
+ai_squad_group:gr_survival_fireteams                     # STOCK  scnr squad groups[9]
+
+# ---- squads: the trooper tier ------------------------------------------------------------------
+# The only squads in Holdout that ship BOTH a populated cell and spawn points. 4 actors each.
+ai_squad:sq_sur_drop_01                                  # STOCK  scnr squads[26]
+ai_squad:sq_sur_drop_02                                  # STOCK  scnr squads[27]
+ai_squad:sq_sur_drop_03                                  # STOCK  scnr squads[28]
+ai_squad:sq_sur_drop_04                                  # STOCK  scnr squads[29]
+# the drop-pod seat each squad arrives in. Without the pod ride the actors spawn at
+# (425.8, 106-108, 2.2), outside the playable base, and never move.
+ai_squad:sq_sur_drop_01/ai_single_location:driver         # STOCK  squads[26] spawn points[0]
+ai_squad:sq_sur_drop_02/ai_single_location:driver         # STOCK  squads[27] spawn points[0]
+ai_squad:sq_sur_drop_03/ai_single_location:driver         # STOCK  squads[28] spawn points[0]
+ai_squad:sq_sur_drop_04/ai_single_location:driver         # STOCK  squads[29] spawn points[0]
+
+# ---- squads: the Spartan tier ------------------------------------------------------------------
+# Dormant stock squads. The SQUAD OBJECTS are stock; tools/patch/holdout_fe_spartans.py adds a cell
+# and two spawn points to each, which is tag data inside an existing squad, not a new script object.
+ai_squad:sur_fireteam_03                                 # STOCK  scnr squads[18]
+ai_squad:sur_fireteam_04                                 # STOCK  scnr squads[19]
+
+# ---- squads: air support -----------------------------------------------------------------------
+ai_squad:sq_sur_banshee_01                               # STOCK  scnr squads[14]
+ai_squad:sq_sur_banshee_02                               # STOCK  scnr squads[15]
+
+# ---- object names: the kiosks ------------------------------------------------------------------
+# device_controls\health_station, placement flags 0x00000000 = present from map load.
+object_name:health_pack0                                 # STOCK  scnr controls[3]  (440.80,122.64,-7.25)
+object_name:health_pack1                                 # STOCK  scnr controls[4]  (448.47,120.77,-8.86)
+object_name:health_pack2                                 # STOCK  scnr controls[5]  (443.27,113.55,-5.07)
+object_name:health_pack3                                 # STOCK  scnr controls[6]  (445.81,118.57,-5.07)
+object_name:health_pack4                                 # STOCK  scnr controls[7]  (443.20,120.76,-5.07)
+object_name:health_pack5                                 # STOCK  scnr controls[8]  (442.30,120.74,-2.89)
+object_name:#_m70_door_ff_02                             # STOCK  scnr machines[15] (445.86,117.43,-5.76)
+
+# ---- object names: delivery and payload --------------------------------------------------------
+object_name:dm_drop_01                                   # STOCK  scnr machines[0]  flags 0x0
+object_name:dm_drop_02                                   # STOCK  scnr machines[27] flags 0x0
+object_name:dm_drop_03                                   # STOCK  scnr machines[28] flags 0x0
+object_name:dm_drop_04                                   # STOCK  scnr machines[29] flags 0x0
+object_name:ammo_crate0                                  # STOCK  scnr equipment[0]
+object_name:ammo_crate1                                  # STOCK  scnr equipment[1]
+object_name:dm_longsword_01                              # STOCK  scnr machines[4]
+object_name:sc_poa                                       # STOCK  scnr scenery[48]  flags 0x0
+
+# ---- trigger volumes ---------------------------------------------------------------------------
+# NONE. All 26 are gone. Purchase input is (objects_distance_to_object <player> <kiosk>), opcode
+# 0x0B2, which is the same call with the same argument order that Holdout's own
+# survival_health_pack_highlight uses on these same health stations.
+
+# ---- starting profiles -------------------------------------------------------------------------
+# NONE, and none are possible: this definition set has no starting-profiles block at all. Ally
+# weapons come from the cell's `initial weapon` block out of the scenario's 23-entry weapon palette.
+
+# ---- ai objectives and roles -------------------------------------------------------------------
+# NOT LISTED AS REFERENCES, deliberately. ai_set_task and ai_set_objective declare their 2nd and
+# 3rd arguments as `string_id`, so the compiler never resolves them as script objects and the
+# --objects manifest would not be consulted. Both were still confirmed present in the tag before
+# use, because the engine does resolve them at runtime:
+#   obj_fireteams            scnr ai objectives[1]
+#   obj_fireteams/fireteams  its single task: squad group filter 9, follow = player, radius 3.0,
+#                            no capacity cap. An unused, ready-made "allies follow the player" task.
+
+# ---- tags (not script objects, but they must be in the cache and named by full path) -----------
+# snd! sound\game_sfx\ui\transition_beeps                                 tag 8131
+# snd! sound\game_sfx\ui\omaha_ui\exit_experience\winning_bonus           tag 9243
+# snd! sound\game_sfx\multiplayer\flag_failure                            tag 3660
+# effe fx\fx_library\pod_impacts\default\pod_impact_default_large.effect   used by stock drop_pod_01

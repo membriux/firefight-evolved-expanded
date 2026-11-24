@@ -559,7 +559,7 @@ def test_cli():
 def run():
     print("reach_cache self-test (synthetic caches only -- no real .map was available)")
     test_fourcc()
-    for variant in (rc.V_MCC_U8, rc.V_MCC_U3, rc.V_MCC_2019, rc.V_REACH_360):
+    for variant in rc.VARIANTS:
         print("  variant %s ..." % variant.name)
         test_variant(variant)
     print("  extraction ...")

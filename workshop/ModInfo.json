@@ -1,0 +1,46 @@
+{
+    "ModIdentifier": {
+        "ModGuid": "1b8f01a3-bbe7-46e8-9299-d663857b59c2"
+    },
+    "ModVersion": {
+        "Major": 0,
+        "Minor": 1,
+        "Patch": 0
+    },
+    "MinAppVersion": {
+        "Major": 1,
+        "Minor": 0,
+        "Patch": 0
+    },
+    "MaxAppVersion": {
+        "Major": 9,
+        "Minor": 9999,
+        "Patch": 9
+    },
+    "Engine": "HaloReach",
+    "Title": {
+        "Neutral": "Firefight Evolved Expanded"
+    },
+    "Description": {
+        "Neutral": "Six stock Reach Firefight maps with purchasable Marine and ODST reinforcements. Derived from The Vengeful 'Vadam's design."
+    },
+    "InheritSharedFiles": "FromMCC",
+    "ModContents": {
+        "HasBackgroundVideos": false,
+        "HasNameplates": false
+    },
+    "GameModContents": {
+        "HasSharedFiles": false,
+        "HasCampaign": false,
+        "HasSpartanOps": false,
+        "HasController": false,
+        "FirefightMaps": [
+            "firefight\\ff50_park.json",
+            "firefight\\ff10_prototype.json",
+            "firefight\\ff60_airview.json",
+            "firefight\\ff70_holdout.json",
+            "firefight\\ff60_icecave.json",
+            "firefight\\ff30_waterfront.json"
+        ]
+    }
+}

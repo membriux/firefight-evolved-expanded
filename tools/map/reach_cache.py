@@ -244,9 +244,18 @@ V_MCC_U3 = HeaderVariant(
     notes="MCC Update 3 (Jun 2020) through Update 7 (May 2021). Adds the string-namespace table.",
 )
 
-# --- MCC Update 8 onwards (engine version 13): ReachMCC_LayoutsU8/U10/U13 ---
-# U8, U10 and U13 core layouts carry byte-identical "header" layouts; the
-# differences between those directories are in other structures.
+# --- MCC Update 10 onwards (engine version 13): ReachMCC_LayoutsU10/U13 -----
+# WARNING, and this was a real bug: LayoutsU8 is NOT the same header as
+# LayoutsU10/U13. Every field below matches in all three, but the interop
+# arrays do not:
+#
+#   LayoutsU8  (Flight 4, Update 8, Update 9)   offset masks 0x4AC  sections 0x4BC
+#   LayoutsU10 (Update 10, 11, 12, Toolset, TU1) offset masks 0x4CC  sections 0x4DC
+#   LayoutsU13 (Update 13, Toolset Update 2, 3)  offset masks 0x4CC  sections 0x4DC
+#
+# Read verbatim from Blamite's Formats/ReachMCC/Layouts*/*_Core.xml, with the
+# build -> layout directory mapping resolved through Engines.xml <inherits>.
+# This variant is therefore U10 and later; V_MCC_U8_EARLY below is Flight 4/U8/U9.
 V_MCC_U8 = HeaderVariant(
     name="mcc-u8+",
     engine_version=13,
@@ -268,8 +277,11 @@ V_MCC_U8 = HeaderVariant(
         "string_index_table_offset": ("i32", 0x3C),
         "string_namespace_table_count": ("i32", 0x40),
         "string_namespace_table_offset": ("i32", 0x44),
-        "cache_build_date_high": ("i32", 0x50),
-        "cache_build_date_low": ("i32", 0x54),
+        # Verified against eight real U13 caches: 0x50 is the LOW dword and 0x54
+        # the HIGH dword of a little-endian FILETIME. Reading them the other way
+        # round (as the 2019/U3 layouts do) makes build_date() give up.
+        "cache_build_date_low": ("i32", 0x50),
+        "cache_build_date_high": ("i32", 0x54),
         "build_string": ("str", 0xA0),
         "internal_name": ("str", 0xC0),
         "scenario_name": ("str", 0xE0),
@@ -282,8 +294,32 @@ V_MCC_U8 = HeaderVariant(
     offset_masks=0x4CC,
     sections=0x4DC,
     index_header=IDX_MCC,
-    notes="MCC Flight 4 / Update 8 (Aug-Sep 2021) onwards, including Update 10-13 and the Reach MCC Toolset. "
-          "Header was reshuffled: build string moved to 0xA0, index header address to 0x2E8.",
+    notes="MCC Update 10 (Jan 2022) through Update 13 and the Reach MCC Toolset. "
+          "Header was reshuffled at Flight 4: build string moved to 0xA0, index header "
+          "address to 0x2E8. Interop arrays at 0x4CC/0x4DC (Blamite LayoutsU10/U13). "
+          "Proven against eight real Update 13 caches.",
+)
+
+# --- MCC Flight 4 / Update 8 / Update 9: ReachMCC_LayoutsU8_Core.xml --------
+# Same header as mcc-u8+ except the two interop arrays, which sit 0x20 lower.
+# Reading a real Update 8 cache with the mcc-u8+ offsets makes the four interop
+# sections land past 0x1_00000000 and the file does not tile; see
+# research/19-holdout-retarget.md §1.
+V_MCC_U8_EARLY = HeaderVariant(
+    name="mcc-u8",
+    engine_version=13,
+    endian="<",
+    header_size=V_MCC_U8.header_size,
+    expand_magic=V_MCC_U8.expand_magic,
+    fields=dict(V_MCC_U8.fields),
+    partitions=V_MCC_U8.partitions,
+    offset_masks=0x4AC,
+    sections=0x4BC,
+    index_header=IDX_MCC,
+    notes="MCC Flight 4 (Aug 2021), Update 8 (Sep 2021) and Update 9 (Sep 2021). "
+          "Interop arrays at 0x4AC/0x4BC (Blamite LayoutsU8). NOT VERIFIED against a "
+          "real cache of these builds - none is on hand - but transcribed from the "
+          "reference layout rather than guessed.",
 )
 
 # --- Xbox 360 Reach (big endian): Reach_Layouts_Core.xml --------------------
@@ -325,7 +361,7 @@ V_REACH_360 = HeaderVariant(
           "(Engines.xml keys 'LetsAllPlayNice!' / 'ILikeSafeStrings'); this module does NOT decrypt them.",
 )
 
-VARIANTS = (V_MCC_U8, V_MCC_U3, V_MCC_2019, V_REACH_360)
+VARIANTS = (V_MCC_U8, V_MCC_U8_EARLY, V_MCC_U3, V_MCC_2019, V_REACH_360)
 
 # Build string -> variant, transcribed from Assembly Formats/Engines.xml.
 # (Engines.xml resolves the layout directory through <inherits>; this table is
@@ -344,9 +380,11 @@ BUILD_TABLE = {
     "Mar  4 2021 13:14:28": ("mcc-u3", "Halo: Reach MCC Update 6"),
     "May 26 2021 10:02:45": ("mcc-u3", "Halo: Reach MCC Update 7"),
     # engine version 13, LayoutsU8/U10/U13 (identical header)
-    "Aug 11 2021 15:50:30": ("mcc-u8+", "Halo: Reach MCC Flight 4"),
-    "Sep 13 2021 09:49:52": ("mcc-u8+", "Halo: Reach MCC Update 8"),
-    "Sep 17 2021 13:25:40": ("mcc-u8+", "Halo: Reach MCC Update 9"),
+    # Flight 4 / U8 / U9 use Blamite LayoutsU8: interop arrays 0x20 lower than
+    # U10+. Mapping them to "mcc-u8+" mis-parsed every section on those builds.
+    "Aug 11 2021 15:50:30": ("mcc-u8", "Halo: Reach MCC Flight 4"),
+    "Sep 13 2021 09:49:52": ("mcc-u8", "Halo: Reach MCC Update 8"),
+    "Sep 17 2021 13:25:40": ("mcc-u8", "Halo: Reach MCC Update 9"),
     "Jan 13 2022 00:54:50": ("mcc-u8+", "Halo: Reach MCC Update 10"),
     "Aug  5 2022 20:35:02": ("mcc-u8+", "Halo: Reach MCC Update 11"),
     "Aug 31 2022 11:53:49": ("mcc-u8+", "Halo: Reach MCC Toolset"),
@@ -838,13 +876,36 @@ class ReachCacheFile:
 
             sections = self._read_sections(r, variant)
             masks = self._read_masks(r, variant)
-            tag_off = sections[SECTION_TAG][0] + masks[SECTION_TAG]
+            tag_off = (sections[SECTION_TAG][0] + masks[SECTION_TAG]) & 0xFFFFFFFF
             vsize = get("virtual_size") or 0
             if 0 < tag_off < len(self.data) and 0 < vsize and tag_off + vsize <= len(self.data) + 0x10000:
                 score += 1
             else:
                 fails.append("tag section (vaddr 0x%X + mask 0x%X, virtual size 0x%X) is outside the file"
                              % (sections[SECTION_TAG][0], masks[SECTION_TAG], vsize))
+
+            # The decisive discriminator between two layouts that differ only in
+            # where the interop arrays live (mcc-u8 at 0x4AC/0x4BC versus
+            # mcc-u8+ at 0x4CC/0x4DC): with the right offsets the four sections
+            # tile the file from the end of the header to EOF with no gap and no
+            # overlap. With the wrong ones they land past 0x1_00000000 and do
+            # not tile. See research/19-holdout-retarget.md §1.
+            spans = sorted(((s[0] + m) & 0xFFFFFFFF, s[1])
+                           for s, m in zip(sections, masks) if s[1])
+            cursor = variant.header_size
+            tiles = bool(spans)
+            for off, size in spans:
+                if off != cursor:
+                    tiles = False
+                    break
+                cursor += size
+            if tiles and cursor == len(self.data):
+                score += 3
+            else:
+                fails.append("the four interop sections do not tile the file from 0x%X to 0x%X "
+                             "with these array offsets (0x%X/0x%X)"
+                             % (variant.header_size, len(self.data),
+                                variant.offset_masks, variant.sections))
 
             vbase = get("virtual_base_address") or 0
             idx = get("index_header_address") or 0
@@ -912,7 +973,12 @@ class ReachCacheFile:
         # Tag-data ("meta") area, per ThirdGenHeader.CalculateTagDataSegment:
         #   file offset of the tag section = section.virtual_address + offset_mask
         if any(s[0] or s[1] for s in self.sections):
-            self.meta_offset = self.sections[SECTION_TAG][0] + self.offset_masks[SECTION_TAG]
+            # Real MCC caches store the mask as a 32-bit wrapping delta: the tag
+            # section's mask is usually negative (e.g. vaddr 0x4D8E000 +
+            # mask 0xFE4BB000 = 0x1_03249000 -> 0x3249000). Without the 32-bit
+            # truncation every real map reports a tag-data offset past EOF.
+            self.meta_offset = (self.sections[SECTION_TAG][0]
+                                + self.offset_masks[SECTION_TAG]) & 0xFFFFFFFF
             self.debug_mask = self.offset_masks[SECTION_DEBUG]
             self.section_source = "interop sections"
             if self.meta_offset != hdr.get("tag_buffer_offset"):
@@ -967,7 +1033,7 @@ class ReachCacheFile:
         BasedPointerConverter(base=section.vaddr, start=section.vaddr+mask)
         reduces to ``offset = pointer + mask``.
         """
-        off = pointer + self.debug_mask
+        off = (pointer + self.debug_mask) & 0xFFFFFFFF
         if not (0 <= off < len(self.data)):
             raise MapFormatError("%s: 0x%X + mask 0x%X = 0x%X, outside the file (0x%X)"
                                  % (what, pointer, self.debug_mask, off, len(self.data)))

@@ -1,0 +1,90 @@
+===============================================================================
+ FIREFIGHT REINFORCEMENTS - KNOWN ISSUES
+ Written 2026-11-23, after the round-3 container audit.
+ Everything below is a real open risk. Nothing here is hypothetical padding.
+===============================================================================
+
+1. NOTHING HAS EVER RUN IN RETAIL MCC.
+   Not one map, not one purchase, not one install, not on any machine. Every
+   claim made for this package is static: an independent reader of the cache
+   header, an independent checksum, Blamite (the cache library inside the
+   Assembly modding tool) loading each file, and a decompile of each map's own
+   script table. None of that is the game. Treat a crash as normal.
+
+2. WHETHER MCC LOADS A REPLACED BUILT-IN FIREFIGHT CACHE IS UNCONFIRMED.
+   Seven of the eight maps are rebuilt copies of Firefight maps that ship with
+   the game. The normal install registers them through MCC's mod manifest
+   rather than overwriting the game's files. No source - not 343's
+   documentation, not the modding community, not any bug report we could find -
+   states whether MCC will actually load a mod-supplied cache in place of a
+   built-in Firefight map. It may silently use the stock map instead. This is
+   the single biggest unknown in the package and it is unresolved.
+
+3. THE SEVEN "ff" MAPS CARRY A STALE RETAIL SIGNATURE. UNPROVEN EITHER WAY.
+   The MCC cache header holds a content-hash mask, a security salt, three
+   SHA-1 content hashes, an RSA key-blob hash and a 256-byte RSA signature.
+   In all seven rebuilt maps those fields are byte-identical to the retail
+   originals, while the content they cover has changed. Assembly does not model
+   or recompute them, so every Assembly-made Reach MCC map mod has this
+   property - which is the practical argument that MCC tolerates it.
+   Against that: the mod author's own working ff_unearthed.map, which has been
+   played, has its RSA signature and RSA key-blob hash zeroed rather than left
+   stale. That suggests the official toolset deliberately clears them. We could
+   not find any published account of what MCC actually checks. If a map is
+   rejected at load, zeroing bytes 0x3AC-0x4CB of the header and recomputing
+   the checksum at 0x360 is the first thing to try.
+   (The two Unearthed builds inherit the author's zeroed signature already.)
+
+4. ALLY SPAWN WALKABILITY IS INFERRED, NOT MEASURED.
+   Where an added ally spawn point stands is taken from that map's own player
+   starting locations - positions the engine stands a Spartan up on at round
+   start. That is the strongest evidence available without running the game,
+   and it is still an inference. The BSP collision data was never read. No
+   spawn point in this package has been confirmed to sit on walkable floor by
+   querying the map's geometry. An ally could spawn stuck or fall.
+
+5. ff_unearthed.tuned.map IS THE SAFEST ARTIFACT IN THE PACKAGE.
+   It is the only build whose script table was never recompiled: it differs
+   from the author's own played map in four bytes and zero in size. The seven
+   "ff" maps, by contrast, had their entire scenario script table regenerated,
+   including roughly 360 of Bungie's own scripts per map - structurally clean,
+   semantically unverified, and by far the largest blast radius here. If the
+   six-Marine Unearthed build (ff_unearthed.map in Firefight-Reinforcements)
+   misbehaves, the Safe folder's copy is tuned.map and is the fallback.
+
+-------------------------------------------------------------------------------
+ SMALLER OPEN ITEMS, FOR COMPLETENESS
+-------------------------------------------------------------------------------
+
+6. The installer and the revert script have NEVER BEEN EXECUTED. They were
+   written for Windows PowerShell; there is no PowerShell on the machine that
+   built this package, so both were reviewed by reading them and in no other
+   way. Run UNINSTALL.bat with no arguments first - that is a dry run and
+   changes nothing - and read its plan before you ever pass -Apply.
+
+7. On-screen shop price text is frozen. The string tables are SHA-1 checked in
+   the header and were deliberately left untouched, so a prompt may quote an
+   old number even when the real cost has changed. The charge is correct; the
+   text is not.
+
+8. Both Unearthed builds declare the same scenario path,
+   levels\dlc\ff_unearthed\ff_unearthed, because their own map headers say so.
+   Their map GUIDs are now distinct, but whether MCC shows two separate entries
+   for one scenario path is untested. See INSTALL.txt if Unearthed appears once
+   or appears wrong.
+
+9. ff_unearthed.marines6.map has a debug-section virtual address that neither a
+   retail file nor the author's own map uses: the growth was absorbed into the
+   section offset mask instead of advancing the address. The arithmetic is
+   self-consistent, the file tiles exactly and Blamite reads it, and retail
+   files carry a larger overlap of the same kind - so this is a low-probability
+   risk, not a defect. It is another reason to keep tuned.map as the fallback.
+
+10. Both Unearthed builds have two resource pages whose extent runs past the end
+    of the resource segment. This condition is present, unchanged, in the
+    author's own played map, so it is inherited and not introduced here. All
+    seven "ff" maps have none.
+
+11. Firefight Corvette is deliberately not in this package. It places no
+    Firefight respawn markers, so there is no coordinate in it known to be
+    floor an ally could spawn on.

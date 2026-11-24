@@ -275,6 +275,35 @@ def test_growth(variant: rc.HeaderVariant, layout: str, mode: str):
           "%s: new space is zeroed" % tag_label)
     check(w.expand(w.contract(g.free_address)) == g.free_address,
           "%s: the new space's address survives pointer contraction" % tag_label)
+
+    # --- Blamite's segment rule, and the reason growth used to break it ------
+    # Blamite (IO/FileSegmenter.RecalculateActualSizes) requires every declared
+    # segment size to fit the distance to the next segment's offset, and it
+    # resolves a pointer into a section as `pointer + offset_mask` (the section
+    # vaddr cancels in BasedPointerConverter.PointerToOffset). So a section that
+    # moves in the file must move its MASK, never its vaddr: bumping the vaddr
+    # leaves every pointer inside the section resolving to the old offset, and
+    # the tag data segment then overruns the first locale segment by exactly the
+    # growth. That is the real "Segment size is too large" of research/19.
+    for i in range(4):
+        vaddr, size = after.sections[i]
+        if vaddr == 0 and size == 0:
+            continue
+        check(vaddr == cache.sections[i][0],
+              "%s: section %d kept its virtual address 0x%X (got 0x%X); only the mask may absorb "
+              "file movement, or pointers into the section go stale"
+              % (tag_label, i, cache.sections[i][0], vaddr))
+    spans = sorted(((s[0] + m) & 0xFFFFFFFF, s[1], i)
+                   for i, (s, m) in enumerate(zip(after.sections, after.offset_masks)) if s[1])
+    for (off, size, i), (noff, _ns, ni) in zip(spans, spans[1:]):
+        check(off + size <= noff,
+              "%s: section %d declares 0x%X bytes at 0x%X but section %d starts at 0x%X "
+              "- Blamite would throw 'Segment size is too large'"
+              % (tag_label, i, size, off, ni, noff))
+    last_off, last_size, last_i = spans[-1]
+    check(last_off + last_size <= len(out),
+          "%s: last section %d (0x%X at 0x%X) must end at or before EOF 0x%X"
+          % (tag_label, last_i, last_size, last_off, len(out)))
     return out
 
 

@@ -3,5 +3,7 @@ __pycache__/
 .DS_Store
 tools/hsc/tables/*.xml
 extracted/
+build/
 *.map
 *.bin
+*.zip

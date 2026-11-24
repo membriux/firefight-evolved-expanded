@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <AssemblyName>hsc-compile</AssemblyName>
+    <RootNamespace>FireFightEvolved.HscCompile</RootNamespace>
+    <!-- CS0436: Blamite declares its own Half type, which collides with System.Half. -->
+    <NoWarn>CS0436</NoWarn>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <!--
+    Path to the Blamite project of a Jestzer/Assembly-CrossPlatform checkout.
+    Override on the command line:  dotnet build -p:BlamiteProject=/path/to/Blamite.csproj
+    build.sh sets this for you.
+  -->
+  <PropertyGroup>
+    <BlamiteProject Condition="'$(BlamiteProject)' == ''">$(MSBuildThisFileDirectory).external/Assembly-CrossPlatform/src/Blamite/Blamite.csproj</BlamiteProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Must match the version Blamite itself references, or the ANTLR context
+         types the driver walks will not be the ones the compiler listens on. -->
+    <PackageReference Include="Antlr4.Runtime.Standard" Version="4.8.0" />
+    <!-- SaveScripts writes the script string table through EndianWriter.WriteWin1252,
+         i.e. Encoding.GetEncoding(1252). .NET Core/8 ships only the Unicode and ASCII
+         code pages, so without this package the write leg dies with
+         "No data is available for encoding 1252". Registered in Program.Main. -->
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
+    <ProjectReference Include="$(BlamiteProject)" />
+  </ItemGroup>
+
+</Project>
