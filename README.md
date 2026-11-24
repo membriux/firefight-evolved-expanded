@@ -7,7 +7,7 @@ HaloScript source + tools to tear apart and rebuild Reach map caches, **from mac
 Inspired by [Halo Reach: Evolved](https://steamcommunity.com/sharedfiles/filedetails/?id=3453792163)
 by The Vengeful 'Vadam, who did it first on Installation 04, Unearthed and Corvette.
 
-**Status: built, audited 3 rounds, never run in retail MCC.** Read [KNOWN-ISSUES.txt](KNOWN-ISSUES.txt).
+**Status: built, audited 4 rounds, never run in retail MCC.** Read [KNOWN-ISSUES.txt](KNOWN-ISSUES.txt).
 
 ---
 
@@ -177,7 +177,7 @@ arm64 macOS and is what `tools/compile/` drives.
 
 ---
 
-## What three audit rounds found
+## What four audit rounds found
 
 After the maps were twice declared finished:
 
@@ -190,6 +190,17 @@ After the maps were twice declared finished:
    author-modded 870 MB Unearthed.
 6. **Uninstaller fed JSON into `Remove-Item -Recurse -Force`** with no path validation.
 7. **Duplicate MapGuids**, so the safe fallback variant was not selectable.
+
+Round 4 closed four more, all found by re-reading the shipped bytes rather than the source
+([docs/30-fix-round4.md](docs/30-fix-round4.md)):
+
+8. **Courtyard delivered both Spartans on a different storey**, 22-23wu from the kiosk. All six ally
+   spawn positions replaced with Courtyard's own player starting locations.
+9. **The 10,000 win purchase charged before validating.** Buy during the bonus round and you paid
+   and got nothing. The kiosk now tests its preconditions first, on all 7 maps.
+10. **A player at exactly 0 health could buy.** `fe_valid` is now `(> health 0)` — Bungie's own
+    boundary, taken from `f_blip_object_until_dead`.
+11. **Unearthed split 2 of 6 Marines ~95wu out.** Moved; all six now span 2.30wu.
 
 The expression-count gap that looked alarming was benign: stock carries ~3,900 expression records
 unreachable from any root; the rebuild carries none, and the *reachable* count rises.

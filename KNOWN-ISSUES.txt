@@ -1,8 +1,19 @@
 ===============================================================================
  FIREFIGHT REINFORCEMENTS - KNOWN ISSUES
- Written 2026-11-23, after the round-3 container audit.
+ Written 2026-11-23, after the round-4 fix pass.
  Everything below is a real open risk. Nothing here is hypothetical padding.
 ===============================================================================
+
+ WHAT THE ROUND-4 PASS CLOSED, so you do not go looking for it here:
+   * Courtyard's Spartan purchase delivering both bodies on a different storey.
+   * The 10,000 MAC STRIKE deducting the points before testing whether the
+     match was already ending. All seven "ff" maps.
+   * The buyer test accepting a player at exactly 0 health.
+   * Unearthed's six-Marine purchase splitting two bodies ~95 world units from
+     the other four.
+ Each of those four was verified by decompiling the shipped file and reading
+ the changed path back out of its own bytes, and by a byte-level diff in which
+ every differing byte falls inside an intended field.
 
 1. NOTHING HAS EVER RUN IN RETAIL MCC.
    Not one map, not one purchase, not one install, not on any machine. Every
@@ -42,6 +53,38 @@
    and it is still an inference. The BSP collision data was never read. No
    spawn point in this package has been confirmed to sit on walkable floor by
    querying the map's geometry. An ally could spawn stuck or fall.
+   Round 4 narrowed this but did not close it. Every ally spawn position on
+   COURTYARD is now one of Courtyard's own player starting locations; the two
+   spawn points round 2 added to each of Waterfront's and Outpost's trooper
+   squads likewise. Measured against each map's own respawn cluster, the ally
+   spawn points still further than 12 world units out, all of them inside the
+   safe zone and in no kill volume, are:
+     * GLACIER     28.9 units, 1.8 units below its siblings. One point of four
+                   on the two trooper squads. This is the largest isolation
+                   left in the package: at most one trooper in four goes there
+                   and the other three arrive correctly.
+     * OUTPOST     15.7 units. One point of four on a trooper squad, and one
+                   of the two points its Spartan squad has.
+     * WATERFRONT  15.8 and 13.5 units - and these are the ONLY two points one
+                   of its two Spartan squads has, so that squad's purchase has
+                   no nearer point to fall back on. Plus 14.4 units on one
+                   trooper point of four and one Spartan point of two.
+     * OVERLOOK    15.0 units. One point of four on a trooper squad and one of
+                   the two points its Spartan squad has.
+     * BEACHHEAD   13.1 units. One point of four on each trooper squad.
+   None of those was touched in round 4, on purpose: the brief for this pass
+   was Courtyard, and all of these have vertical offsets under 1.9 units, so
+   none shows the different-storey signature - 2.6 units of drop across 1.2
+   units of ground - that made Courtyard's pair the one worth the risk of
+   another write. If a Spartan purchase lands away from the shop in play, the
+   likeliest map is WATERFRONT and the likeliest cause is this. A body that
+   arrives far from the shop still arrives inside the arena.
+   UNEARTHED is a separate case and weaker: the containment test does not
+   calibrate on that map at all - none of its 16 player starting locations
+   register inside its safe zone, and neither do the four ORIGINAL Marine
+   spawn points - so no safe-zone or kill-volume claim is made for Unearthed in
+   either direction. Its coordinates rest on provenance alone: every one of
+   them is a spawn position the map itself already authors.
 
 5. ff_unearthed.tuned.map IS THE SAFEST ARTIFACT IN THE PACKAGE.
    It is the only build whose script table was never recompiled: it differs
@@ -88,3 +131,27 @@
 11. Firefight Corvette is deliberately not in this package. It places no
     Firefight respawn markers, so there is no coordinate in it known to be
     floor an ally could spawn on.
+
+12. THE LONGSWORD IS LEAKED RATHER THAN DESTROYED. Six of the seven "ff" maps
+    (not Glacier, which has no Longsword at all). The LONGSWORD PASS creates
+    the map's Longsword device, flies it and never destroys it, so the model
+    can sit parked over the arena until the map's own weapon-resupply cycle
+    re-animates and clears it - an interval nothing here bounds. This was a
+    deliberate choice and it is being kept: the previous behaviour destroyed
+    the device, and that could leave the map's own resupply event waiting
+    forever on a device that no longer exists, which is unrecoverable. A
+    visible aeroplane is better than a dead event. Purely cosmetic.
+
+13. WHAT THE ROUND-4 EDITS PHYSICALLY ARE, for anyone auditing this next.
+    Courtyard's and Unearthed's spawn fixes are in-place overwrites of 12-byte
+    position fields - six fields and two fields respectively - with no block
+    allocated, no count changed, no pointer changed and no change in file size.
+    The script fixes on the seven "ff" maps are a normal script-table rewrite:
+    script count and global count are unchanged on every map, so no script
+    object was added, and the expression count rose by exactly 8 per map.
+    Every one of the nine shipped caches re-parses with zero warnings, stores
+    a header checksum equal to the recomputed one, and is accepted by Blamite.
+    Waterfront and Outpost were rebuilt from build/r2/lin/<map>.tagfix.map, the
+    only base that carries their four-spawn-point trooper fix together with an
+    unwritten script table; building them from anything else silently regresses
+    those squads to two spawn points. See project/build/r2/README-COORDINATION.txt.
